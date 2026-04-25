@@ -12,3 +12,10 @@ frontend/frontend.log
 start_services.sh
 stop_services.sh
 .idea/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
