@@ -11,3 +11,4 @@ frontend/frontend.log
 *.pyc
 start_services.sh
 stop_services.sh
+.idea/
