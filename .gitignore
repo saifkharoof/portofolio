@@ -9,3 +9,5 @@ frontend/dist/
 frontend/frontend.log
 .DS_Store
 *.pyc
+start_services.sh
+stop_services.sh
