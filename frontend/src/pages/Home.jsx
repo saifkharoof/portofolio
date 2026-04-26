@@ -23,7 +23,7 @@ const Home = () => {
     loadImages(0, 'all', 'all', false);
   }, []); // Initial load
 
-  const loadImages = async (newSkip, tag, category, append) => {
+  const loadImages = async (newSkip, tag, category, append, isCategoryChange = false) => {
     try {
       if (!append) setLoading(true);
       
@@ -35,12 +35,13 @@ const Home = () => {
       setImages(newImages);
       setTotal(data.total);
       
-      // Always recompute tags from the current result set so tags are scoped to the active category
-      if (!append) {
+      // Only recompute global tags and reset active tag when the category changes
+      if (isCategoryChange || (newSkip === 0 && tag === 'all' && category === 'all' && !append)) {
         const uniqueTags = new Set(newImages.flatMap(img => img.tags || []));
         setAllTags(Array.from(uniqueTags).sort());
-        // Reset tag filter if the active tag no longer exists in this category
-        setCurrentTag('all');
+        if (isCategoryChange) {
+          setCurrentTag('all');
+        }
       }
       
       setError(null);
@@ -54,13 +55,14 @@ const Home = () => {
   const handleTagClick = (tag) => {
     setCurrentTag(tag);
     setSkip(0);
-    loadImages(0, tag, currentCategory, false);
+    loadImages(0, tag, currentCategory, false, false);
   };
 
   const handleCategoryClick = (cat) => {
     setCurrentCategory(cat);
     setSkip(0);
-    loadImages(0, currentTag, cat, false);
+    setCurrentTag('all');
+    loadImages(0, 'all', cat, false, true);
   };
 
   const loadMore = () => {
@@ -107,7 +109,6 @@ const Home = () => {
           </p>
           <div className="hero-actions animate-fade-in-up stagger-3">
             <a href="#gallery" className="btn btn-primary btn-lg">View Gallery</a>
-            <a href="#about" className="btn btn-outline btn-lg">About Me</a>
           </div>
           <div className="hero-stats animate-fade-in-up stagger-4">
             <div className="stat">

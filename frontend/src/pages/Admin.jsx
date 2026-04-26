@@ -321,7 +321,7 @@ const Admin = () => {
 
           <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {selectedFiles.map((file, idx) => (
-              <div key={idx} style={{ padding: '1.5rem', border: `1px solid ${generatingIndex === idx ? 'var(--color-primary)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-lg)', display: 'flex', gap: '1.5rem', alignItems: 'flex-start', position: 'relative', overflow: 'hidden', transition: 'var(--transition-fast)' }}>
+              <div key={idx} className="batch-item-card" style={{ padding: '1.5rem', border: `1px solid ${generatingIndex === idx ? 'var(--color-primary)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-lg)', display: 'flex', gap: '1.5rem', alignItems: 'flex-start', position: 'relative', overflow: 'hidden', transition: 'var(--transition-fast)' }}>
                 {generatingIndex === idx && (
                   <>
                     <div className="scan-overlay"></div>
