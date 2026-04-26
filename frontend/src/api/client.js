@@ -14,10 +14,14 @@ export const fetchAPI = async (endpoint, options = {}) => {
   const initHeaders = {
     ...getHeaders(),
     ...(!isFormData && { 'Content-Type': 'application/json' }),
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
     ...options.headers
   };
 
   const response = await fetch(url, {
+    cache: 'no-store',
     ...options,
     headers: initHeaders
   });
