@@ -3,7 +3,7 @@ import json
 from loguru import logger
 from typing import Optional
 from beanie import PydanticObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form, Request, Response
 from fastapi_cache.decorator import cache
 from fastapi_cache import FastAPICache
 
@@ -27,12 +27,15 @@ MAX_FILE_SIZE = 15 * 1024 * 1024  # 15 MB
 @cache(namespace="images", expire=120)
 async def list_images(
     request: Request,
+    response: Response,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     tag: Optional[str] = Query(None, description="Filter by tag"),
     category: Optional[str] = Query(None, description="Filter by category"),
 ):
     """Return a paginated list of images, optionally filtered by tag or category."""
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    
     query_conditions = [Image.is_deleted == False]
     if tag:
         query_conditions.append(Image.tags == tag)
@@ -54,8 +57,9 @@ async def list_images(
 @router.get("/{image_id}", summary="Get a single image")
 @limiter.limit(settings.rate_limit_public)
 @cache(namespace="images", expire=120)
-async def get_image(request: Request, image_id: PydanticObjectId):
+async def get_image(request: Request, response: Response, image_id: PydanticObjectId):
     """Return a single image by its ID."""
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     image = await Image.get(image_id)
     if not image or image.is_deleted:
         raise HTTPException(status_code=404, detail="Image not found")
