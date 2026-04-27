@@ -18,9 +18,9 @@ A full-stack portfolio application designed to showcase photography work alongsi
 - **Database:** MongoDB Atlas via Beanie ODM (Asynchronous object-document mapper)
 - **Storage:** Cloudflare R2 (S3-compatible object storage)
 - **Authentication:** JWT-based secure authentication using passlib and bcrypt
-- **Deployment:** Render (Dockerized container)
+- **Deployment:** Render
 - **Features:**
-  - Automated deployment pipeline via GitHub Actions and Render native integration
+  - Automated deployment pipeline via Render native integration
   - Rate limiting and CORS configurations for security
   - In-memory caching for performance optimization
 
