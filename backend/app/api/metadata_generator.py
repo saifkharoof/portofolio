@@ -41,7 +41,7 @@ async def analyze_image(
         )
         
         response = client.models.generate_content(
-            model='gemini-3.1-flash-lite-preview',
+            model=settings.gemini_model_name,
             contents=[
                 types.Part.from_bytes(data=file_bytes, mime_type=file.content_type),
                 instruction
