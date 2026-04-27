@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     mongodb_url: str
     database_name: str
-    secret_key: str  # No default — app will crash on boot if missing
+    secret_key: str
     access_token_expire_minutes: int = 60
 
     # CORS — comma-separated list of allowed origins
@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     # AI
     gemini_api_key: Optional[str] = None
+    gemini_model_name: str = "gemini-3-flash-preview"
 
     # Environment
     environment: str = "development"  # "development" or "production"
