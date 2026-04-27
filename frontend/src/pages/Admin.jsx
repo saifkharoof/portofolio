@@ -105,7 +105,7 @@ const Admin = () => {
     }
   };
 
-  const [generatingIndex, setGeneratingIndex] = useState(null);
+  const [generatingIndices, setGeneratingIndices] = useState(new Set());
 
   const removeBatchItem = (index) => {
     URL.revokeObjectURL(batchItems[index].preview);
@@ -126,7 +126,7 @@ const Admin = () => {
 
   const handleAutoGenerate = async (idx) => {
     try {
-      setGeneratingIndex(idx);
+      setGeneratingIndices(prev => new Set(prev).add(idx));
       setErrorMsg('');
       const file = selectedFiles[idx];
       const formData = new FormData();
@@ -137,20 +137,29 @@ const Admin = () => {
         body: formData
       });
 
-      const newItems = [...batchItems];
-      newItems[idx].title = aiData.title || newItems[idx].title;
-      newItems[idx].description = aiData.description || newItems[idx].description;
-      newItems[idx].category = aiData.category || newItems[idx].category;
-      newItems[idx].tags = aiData.tags ? aiData.tags.join(', ') : newItems[idx].tags;
-      newItems[idx].rating = aiData.rating || newItems[idx].rating;
+      setBatchItems(prevItems => {
+        const newItems = [...prevItems];
+        newItems[idx] = {
+           ...newItems[idx],
+           title: aiData.title || newItems[idx].title,
+           description: aiData.description || newItems[idx].description,
+           category: aiData.category || newItems[idx].category,
+           tags: aiData.tags ? aiData.tags.join(', ') : newItems[idx].tags,
+           rating: aiData.rating || newItems[idx].rating
+        };
+        return newItems;
+      });
       
-      setBatchItems(newItems);
       setSuccessMsg(`AI successfully curated metadata for: ${file.name}`);
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
       setErrorMsg(`AI Vision Error: ${err.message || 'Failed connecting securely to structured endpoint.'}`);
     } finally {
-      setGeneratingIndex(null);
+      setGeneratingIndices(prev => {
+        const next = new Set(prev);
+        next.delete(idx);
+        return next;
+      });
     }
   };
 
@@ -321,8 +330,8 @@ const Admin = () => {
 
           <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {selectedFiles.map((file, idx) => (
-              <div key={idx} className="batch-item-card" style={{ padding: '1.5rem', border: `1px solid ${generatingIndex === idx ? 'var(--color-primary)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-lg)', display: 'flex', gap: '1.5rem', alignItems: 'flex-start', position: 'relative', overflow: 'hidden', transition: 'var(--transition-fast)' }}>
-                {generatingIndex === idx && (
+              <div key={idx} className="batch-item-card" style={{ padding: '1.5rem', border: `1px solid ${generatingIndices.has(idx) ? 'var(--color-primary)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-lg)', display: 'flex', gap: '1.5rem', alignItems: 'flex-start', position: 'relative', overflow: 'hidden', transition: 'var(--transition-fast)' }}>
+                {generatingIndices.has(idx) && (
                   <>
                     <div className="scan-overlay"></div>
                     <div className="analyzing-text">✨ GENERATING...</div>
@@ -332,7 +341,7 @@ const Admin = () => {
                 <div style={{ flex: '0 0 160px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div style={{ width: '100%', aspectRatio: '4/3', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-secondary)', position: 'relative' }}>
                     {batchItems[idx].preview && (
-                      <img src={batchItems[idx].preview} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: generatingIndex === idx ? 'brightness(0.6)' : 'none', transition: 'var(--transition-fast)' }} />
+                      <img src={batchItems[idx].preview} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: generatingIndices.has(idx) ? 'brightness(0.6)' : 'none', transition: 'var(--transition-fast)' }} />
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -342,7 +351,7 @@ const Admin = () => {
                     <button 
                       type="button" 
                       onClick={() => handleAutoGenerate(idx)} 
-                      disabled={generatingIndex === idx} 
+                      disabled={generatingIndices.has(idx)} 
                       style={{ 
                         width: '100%', 
                         padding: '0.5rem', 
@@ -351,12 +360,12 @@ const Admin = () => {
                         background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
                         color: 'white', 
                         fontWeight: '600', 
-                        cursor: generatingIndex === idx ? 'not-allowed' : 'pointer',
-                        opacity: generatingIndex === idx ? 0.7 : 1,
+                        cursor: generatingIndices.has(idx) ? 'not-allowed' : 'pointer',
+                        opacity: generatingIndices.has(idx) ? 0.7 : 1,
                         transition: 'var(--transition-fast)'
                       }}
                     >
-                      {generatingIndex === idx ? '⚡ Analyzing...' : '✨ Auto Details'}
+                      {generatingIndices.has(idx) ? '⚡ Analyzing...' : '✨ Auto Details'}
                     </button>
                   </div>
                 </div>
