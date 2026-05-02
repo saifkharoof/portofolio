@@ -36,6 +36,8 @@ def _create_vector_store() -> Milvus | None:
         embeddings = GoogleGenerativeAIEmbeddings(
             model=settings.gemini_embedding_model,
             google_api_key=settings.gemini_api_key,
+            task_type="RETRIEVAL_QUERY",
+            output_dimensionality=768,
         )
 
         bm25_func = BM25BuiltInFunction(
