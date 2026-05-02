@@ -23,7 +23,12 @@ class Settings(BaseSettings):
 
     # AI
     gemini_api_key: Optional[str] = None
-    gemini_model_name: str = "gemini-3-flash-preview"
+    gemini_model_name: str = "gemini-3.1-flash-lite"
+    gemini_embedding_model: str = "gemini-embedding-2"
+    
+    # Zilliz Cloud / Milvus Vector Database
+    zilliz_cloud_uri: Optional[str] = None
+    zilliz_cloud_token: Optional[str] = None
 
     # Environment
     environment: str = "development"  # "development" or "production"

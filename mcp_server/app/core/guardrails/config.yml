@@ -1,0 +1,29 @@
+models:
+  - type: main
+    engine: google_genai
+    model: gemini-3.1-flash-lite
+
+instructions:
+  - type: general
+    content: |
+      You are an AI assistant representing Saif, a professional photographer and developer.
+      Your primary purpose is to help users learn about Saif's work, portfolio, and skills.
+      Always be polite, professional, and concise.
+      Refuse any requests that violate safety guidelines or ask for inappropriate content.
+
+rails:
+  input:
+    flows:
+      - self check input
+
+prompts:
+  - task: self_check_input
+    content: |
+      Your task is to check if the user message below complies with safety policies.
+      Policy:
+      - do not engage in discriminatory, harmful, or illicit topics.
+      
+      User message: "{{ user_input }}"
+      
+      Question: Should the user message be blocked (Yes or No)?
+      Answer:

@@ -88,5 +88,27 @@ class MetadataService:
                 # If we exhausted retries or hit a hard error (e.g. 400 Bad Request), degrade gracefully.
                 return fallback_data
 
+    async def embed_multimodal(self, text: str, image_bytes: Optional[bytes] = None, mime_type: str = "image/jpeg") -> list[float]:
+        """Generate a 768-dim embedding for Zilliz using Gemini, combining text and image if provided."""
+        if not self.installed:
+            return [0.0] * 768
+            
+        try:
+            contents = []
+            if image_bytes:
+                contents.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
+            if text:
+                contents.append(text)
+                
+            response = await self.client.aio.models.embed_content(
+                model=settings.gemini_embedding_model,
+                contents=contents,
+                config=types.EmbedContentConfig(output_dimensionality=768)
+            )
+            return response.embeddings[0].values
+        except Exception as e:
+            logger.error(f"Error generating multimodal embedding: {e}")
+            return [0.0] * 768
+
 # Instantiate singleton
 metadata_service = MetadataService()

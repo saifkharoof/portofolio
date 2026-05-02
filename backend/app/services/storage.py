@@ -41,6 +41,19 @@ class StorageService:
             logger.error(f"Error uploading to R2: {e}")
             raise Exception(f"Failed to upload file to Cloudflare R2: {str(e)}")
 
+    def get_file(self, object_key: str) -> bytes | None:
+        """
+        Download a file's bytes from Cloudflare R2.
+        """
+        if not self.s3:
+            return None
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=object_key)
+            return response['Body'].read()
+        except ClientError as e:
+            logger.error(f"Error downloading from R2: {e}")
+            return None
+
     def generate_presigned_url(self, object_key: str, expiration=3600) -> str:
         """
         Generate a presigned URL to share an S3 object securely.
