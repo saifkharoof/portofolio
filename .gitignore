@@ -6,6 +6,7 @@ backend/venv/
 .venv
 .vscode
 *.pid
+*.log
 backend/backend.log
 frontend/node_modules/
 frontend/dist/
