@@ -7,8 +7,10 @@ from contextlib import asynccontextmanager
 from app.api.auth import router as auth_router
 from app.api.images import router as images_router
 from app.api.metadata_generator import router as ai_router
+from app.api.chat import router as chat_router
 from app.core.init_db import init_db
 from app.core.config import settings
+from app.services.mcp_client import mcp_service
 
 # Swagger metadata
 description = """
@@ -20,6 +22,7 @@ It handles secure image uploads, database management, and JWT authentication.
 #### Features
 * **Authentication**: Secure admin login using JWT tokens.
 * **Images**: CRUD operations for photography metadata.
+* **Agentic Chat**: Multimodal LangGraph chat integrating with MCP vector search.
 """
 
 
@@ -35,9 +38,14 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Portfolio Backend...")
     await init_db()
     FastAPICache.init(InMemoryBackend(), prefix="portfolio-cache")
+    
+    # Initialize MCP connection for LangGraph Agent
+    await mcp_service.connect()
+    
     logger.success("Backend booted successfully.")
     yield
     logger.info("Shutting down.")
+    await mcp_service.disconnect()
 
 
 # Disable Swagger docs in production
@@ -90,3 +98,4 @@ async def health_check():
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(images_router, prefix="/api/images", tags=["Images"])
 app.include_router(ai_router, prefix="/api/ai", tags=["AI Generation"])
+app.include_router(chat_router, prefix="/api/chat", tags=["Agentic Chat"])

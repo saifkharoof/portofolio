@@ -23,10 +23,21 @@ const Navbar = () => {
 
   const currentPath = location.pathname;
 
+  const handleNavClick = (e, targetPath) => {
+    if (currentPath === '/chat' && targetPath !== '/chat' && sessionStorage.getItem('isChatActive') === 'true') {
+      const confirmLeave = window.confirm("Are you sure you want to leave? This will delete your current chat.");
+      if (!confirmLeave) {
+        e.preventDefault();
+        return;
+      }
+    }
+    setMenuOpen(false);
+  };
+
   return (
     <nav className={`navbar ${scrolled ? 'scrolled' : ''}`} id="navbar">
       <div className="nav-container container">
-        <Link to="/" className="nav-logo">
+        <Link to="/" className="nav-logo" onClick={(e) => handleNavClick(e, '/')}>
           <span className="logo-mark">S</span>
           <span className="logo-text">Saif</span>
         </Link>
@@ -35,14 +46,21 @@ const Navbar = () => {
           <Link 
             to="/" 
             className={`nav-link ${currentPath === '/' ? 'active' : ''}`}
-            onClick={() => setMenuOpen(false)}
+            onClick={(e) => handleNavClick(e, '/')}
           >
             Gallery
           </Link>
           <Link 
+            to="/chat" 
+            className={`nav-link ${currentPath === '/chat' ? 'active' : ''}`}
+            onClick={(e) => handleNavClick(e, '/chat')}
+          >
+            Chat
+          </Link>
+          <Link 
             to={isAuth ? '/admin' : '/login'} 
             className={`nav-link ${['/login', '/admin'].includes(currentPath) ? 'active' : ''}`}
-            onClick={() => setMenuOpen(false)}
+            onClick={(e) => handleNavClick(e, isAuth ? '/admin' : '/login')}
           >
             {isAuth ? 'Dashboard' : 'Admin'}
           </Link>

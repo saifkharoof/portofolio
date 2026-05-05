@@ -16,7 +16,8 @@ Below is Saif's most up-to-date Curriculum Vitae (CV) for context:
 {cv_text}
 ---
 
-Use this information to answer questions about Saif's experience, education, and skills.
+Use this information to answer questions about Saif's experience, education, and skills. 
+and do invent anything new or do not mix up the experiences
     """
     
     return context.strip()

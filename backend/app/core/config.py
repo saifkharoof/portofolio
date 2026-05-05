@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     gemini_model_name: str = "gemini-3.1-flash-lite"
     gemini_embedding_model: str = "gemini-embedding-2"
     
+    # MCP Server
+    mcp_server_url: str = "http://localhost:8010/sse"
+
+    # Chat — concurrency & validation
+    chat_max_concurrent: int = 3
+    chat_max_image_size_mb: int = 5
+    chat_max_message_length: int = 2000
+    
     # Zilliz Cloud / Milvus Vector Database
     zilliz_cloud_uri: Optional[str] = None
     zilliz_cloud_token: Optional[str] = None
