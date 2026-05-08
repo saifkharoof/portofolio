@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     
     # MCP Server
     mcp_server_url: str = "http://localhost:8010/sse"
+    mcp_api_token: str
 
     # Chat — concurrency & validation
     chat_max_concurrent: int = 3
