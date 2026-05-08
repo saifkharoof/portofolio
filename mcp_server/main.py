@@ -84,6 +84,6 @@ app.mount("/", mcp_app)
 import uvicorn
 
 logger.info("Starting MCP Server via uvicorn (HTTP Transport)")
-uvicorn.run("main:app", host="0.0.0.0", port=settings.mcp_port, reload=True)
+uvicorn.run("main:app", host="0.0.0.0", port=settings.mcp_port, reload=False)
 
 
