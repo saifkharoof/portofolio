@@ -3,7 +3,7 @@ import json
 from loguru import logger
 from typing import Optional
 from beanie import PydanticObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form, Request, Response, BackgroundTasks
 from fastapi_cache.decorator import cache
 from fastapi_cache import FastAPICache
 
@@ -12,10 +12,44 @@ from app.models.admin import AdminUser
 from app.models.image import Image
 from app.schemas.image import ImageUpdate, ImageResponse
 from app.services.storage import storage
+from app.services.zilliz_service import zilliz_service
+from app.services.metadata_service import metadata_service
 from app.core.config import settings
 from app.core.limiter import limiter
 
 router = APIRouter()
+
+async def background_upsert_zilliz(image: Image, file_bytes: Optional[bytes] = None, mime_type: str = "image/jpeg"):
+    try:
+        text_to_embed = f"Title: {image.title}. Category: {image.category}. Tags: {', '.join(image.tags)}. Description: {image.description or ''}"
+        
+        if file_bytes is None:
+            # This is an update. Re-use the existing embedding from Zilliz to save AI cost!
+            logger.info("Updating embeddings to Zilliz.")
+            embedding = zilliz_service.get_image_embedding(str(image.id))
+            if not embedding:
+                logger.warning(f"Could not find existing embedding for {image.id}. Skipping Zilliz update.")
+                return
+        else:
+            # This is a new upload. Generate the multimodal embedding.
+            logger.info("Uploading embedding to Zilliz.")
+            embedding = await metadata_service.embed_multimodal(text_to_embed, file_bytes, mime_type)
+        
+        img_url = f"{settings.r2_public_url}/{image.image_key}" if settings.r2_public_url else image.image_key
+        zilliz_service.upsert_image(
+            image_id=str(image.id),
+            title=image.title,
+            category=image.category,
+            tags=image.tags,
+            image_url=img_url,
+            text=text_to_embed,
+            embedding=embedding
+        )
+    except Exception as e:
+        logger.error(f"Background Zilliz upsert failed: {e}")
+
+def background_delete_zilliz(image_id: str):
+    zilliz_service.delete_image(image_id)
 
 ALLOWED_EXTENSIONS = {"image/jpeg", "image/png", "image/webp"}
 MAX_FILE_SIZE = 15 * 1024 * 1024  # 15 MB
@@ -71,6 +105,7 @@ async def get_image(request: Request, response: Response, image_id: PydanticObje
 @limiter.limit(settings.rate_limit_admin)
 async def create_batch_images(
     request: Request,
+    background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     metadata: str = Form(...),
     _admin: AdminUser = Depends(get_current_user),
@@ -131,6 +166,9 @@ async def create_batch_images(
         await image.insert()
         uploaded.append(image)
 
+        # Sync to Zilliz in background with image bytes
+        background_tasks.add_task(background_upsert_zilliz, image, file_bytes, file.content_type)
+
     logger.success(f"Batch upload complete: {len(uploaded)} images saved.")
     return [ImageResponse.from_doc(doc) for doc in uploaded]
 
@@ -139,6 +177,7 @@ async def create_batch_images(
 @limiter.limit(settings.rate_limit_admin)
 async def create_image(
     request: Request,
+    background_tasks: BackgroundTasks,
     title: str = Form(...),
     description: Optional[str] = Form(None),
     category: str = Form(...),
@@ -175,12 +214,17 @@ async def create_image(
         tags=parsed_tags,
     )
     await image.insert()
+    
+    # Sync to Zilliz in background with image bytes
+    background_tasks.add_task(background_upsert_zilliz, image, file_bytes, file.content_type)
+    
     return ImageResponse.from_doc(image)
 
 @router.put("/{image_id}", summary="Update an image entry")
 @limiter.limit(settings.rate_limit_admin)
 async def update_image(
     request: Request,
+    background_tasks: BackgroundTasks,
     image_id: PydanticObjectId,
     data: ImageUpdate,
     _admin: AdminUser = Depends(get_current_user),
@@ -194,6 +238,9 @@ async def update_image(
     update_data = data.model_dump(exclude_unset=True)
     if update_data:
         await image.set(update_data)
+        
+        # Sync to Zilliz in background (will download image bytes automatically)
+        background_tasks.add_task(background_upsert_zilliz, image)
 
     return ImageResponse.from_doc(image)
 
@@ -201,6 +248,7 @@ async def update_image(
 @limiter.limit(settings.rate_limit_admin)
 async def delete_image(
     request: Request,
+    background_tasks: BackgroundTasks,
     image_id: PydanticObjectId,
     _admin: AdminUser = Depends(get_current_user),
 ):
@@ -212,5 +260,8 @@ async def delete_image(
         
     image.is_deleted = True
     await image.save()
+    
+    # Sync to Zilliz in background
+    background_tasks.add_task(background_delete_zilliz, str(image.id))
     
     return None
