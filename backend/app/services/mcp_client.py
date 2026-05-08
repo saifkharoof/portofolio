@@ -7,18 +7,25 @@ from loguru import logger
 
 
 class MCPService:
-    def __init__(self, sse_url: str):
+    def __init__(self, sse_url: str, api_token: str | None = None):
         self.sse_url = sse_url
+        self.api_token = api_token
         self._async_exit_stack = AsyncExitStack()
         self.session: ClientSession | None = None
         self.tools = []
 
     async def connect(self):
         logger.info(f"Connecting to MCP SSE endpoint: {self.sse_url}")
+
+        headers = {}
+        if self.api_token:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+
         for attempt in range(5):
             try:
+                # Pass the headers into the sse_client
                 read_stream, write_stream = await self._async_exit_stack.enter_async_context(
-                    sse_client(self.sse_url)
+                    sse_client(self.sse_url, headers=headers)
                 )
                 self.session = await self._async_exit_stack.enter_async_context(
                     ClientSession(read_stream, write_stream)
@@ -39,7 +46,9 @@ class MCPService:
             logger.debug(f"MCP disconnect: {e}")
         self.session = None
 
-
 from app.core.config import settings
 
-mcp_service = MCPService(sse_url=settings.mcp_server_url)
+mcp_service = MCPService(
+    sse_url=settings.mcp_server_url,
+    api_token=getattr(settings, "mcp_api_token", None)
+)
