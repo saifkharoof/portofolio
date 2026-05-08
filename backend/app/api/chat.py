@@ -27,18 +27,11 @@ from app.services.chat_helpers import (
     parse_tool_images,
     validate_thread_id,
 )
-
+from app.services.mcp_client import mcp_service
 router = APIRouter()
 
-# ---------------------------------------------------------------------------
-# Concurrency gate — limits simultaneous agent sessions
-# ---------------------------------------------------------------------------
 _chat_semaphore = asyncio.Semaphore(settings.chat_max_concurrent)
 
-
-# ---------------------------------------------------------------------------
-# Route
-# ---------------------------------------------------------------------------
 
 @router.post("/stream")
 @limiter.limit(settings.rate_limit_public)
@@ -48,22 +41,17 @@ async def chat_stream(
     image: UploadFile = File(None),
     thread_id: str = Form("default-thread"),
 ):
-    # --- Input validation ---------------------------------------------------
-
-    # Validate thread_id format
     try:
         validate_thread_id(thread_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Validate message length
     if message and len(message) > settings.chat_max_message_length:
         raise HTTPException(
             status_code=400,
             detail=f"Message too long. Maximum {settings.chat_max_message_length} characters.",
         )
 
-    # --- Build the HumanMessage content parts --------------------------------
     content = []
 
     if message and message.strip():
@@ -73,7 +61,6 @@ async def chat_stream(
         try:
             image_bytes = await image.read()
 
-            # Validate file size
             max_bytes = settings.chat_max_image_size_mb * 1024 * 1024
             if len(image_bytes) > max_bytes:
                 raise HTTPException(
@@ -81,7 +68,6 @@ async def chat_stream(
                     detail=f"Image too large. Maximum {settings.chat_max_image_size_mb}MB.",
                 )
 
-            # Validate MIME type via magic bytes
             if image_bytes[:3] == b"\xff\xd8\xff":
                 detected_mime = "image/jpeg"
             elif image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
@@ -110,40 +96,52 @@ async def chat_stream(
     human_msg = HumanMessage(content=content)
     config = {"configurable": {"thread_id": thread_id}}
 
-    # --- Concurrency check ---------------------------------------------------
     if _chat_semaphore._value <= 0:
-        # All slots taken — return immediately with a busy message
         async def busy_generator():
             evt = SSEBusy(type="busy")
             yield f"data: {evt.model_dump_json()}\n\n"
 
         return StreamingResponse(busy_generator(), media_type="text/event-stream")
 
-    # --- Stream the agent response -------------------------------------------
     async def event_generator():
         async with _chat_semaphore:
             try:
+                # Fetch base prompt from MCP at the start of each conversation
+                try:
+                    res = await mcp_service.session.get_prompt("fetch_base_prompt")
+                    base_prompt = res.messages[0].content.text if res.messages else "You are a helpful photography portfolio assistant."
+                    logger.info("Base prompt fetched from MCP.")
+                except Exception as e:
+                    base_prompt = "You are a helpful photography portfolio assistant."
+                    logger.warning(f"Could not fetch base prompt: {e}")
+
                 async for event in app_graph.astream_events(
-                    {"messages": [human_msg]}, config, version="v2"
+                    {"messages": [human_msg], "image_description": None, "image_described": False, "search_context": "", "last_search_query": "", "previous_results": "", "system_prompt": base_prompt},
+                    config,
+                    version="v2",
                 ):
-                    if event["event"] == "on_chat_model_stream":
+                    event_type = event.get("event", "")
+
+                    if event_type == "on_chat_model_stream":
                         chunk = event["data"]["chunk"]
                         text = extract_text_chunk(chunk.content)
                         if text:
                             evt = SSEContent(type="content", text=text)
                             yield f"data: {evt.model_dump_json()}\n\n"
 
-                    elif event["event"] == "on_tool_start":
-                        evt = SSEToolStart(type="tool_start", name=event["name"])
-                        yield f"data: {evt.model_dump_json()}\n\n"
+                    elif event_type == "on_tool_start":
+                        name = event.get("name", "")
+                        if name in ("search_portfolio", "describe_image"):
+                            evt = SSEToolStart(type="tool_start", name=name)
+                            yield f"data: {evt.model_dump_json()}\n\n"
 
-                    elif event["event"] == "on_tool_end":
+                    elif event_type == "on_tool_end":
                         tool_output = event["data"].get("output")
                         images: List[PortfolioImage] = []
                         if tool_output is not None:
                             raw = extract_raw_content(tool_output)
                             images = parse_tool_images(raw)
-                        evt = SSEToolEnd(type="tool_end", name=event["name"], images=images)
+                        evt = SSEToolEnd(type="tool_end", name=event.get("name", ""), images=images)
                         yield f"data: {evt.model_dump_json()}\n\n"
 
                 yield f"data: {SSEDone(type='done').model_dump_json()}\n\n"

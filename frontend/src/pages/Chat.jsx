@@ -13,7 +13,13 @@ const Chat = () => {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [threadId] = useState(() => 'thread_' + Math.random().toString(36).substring(2, 15));
+  const [threadId] = useState(() => {
+    const stored = localStorage.getItem('chat_thread_id');
+    if (stored) return stored;
+    const newId = 'thread_' + Math.random().toString(36).substring(2, 15);
+    localStorage.setItem('chat_thread_id', newId);
+    return newId;
+  });
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const [lightboxData, setLightboxData] = useState(null);

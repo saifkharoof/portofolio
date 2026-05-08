@@ -43,6 +43,8 @@ def extract_text_chunk(content) -> str:
 def parse_tool_images(raw: str) -> List[PortfolioImage]:
     """Try to parse the MCP JSON payload into validated PortfolioImage objects."""
     try:
+        if not raw or not raw.strip():
+            return []
         data = json.loads(raw)
         if isinstance(data, list):
             return [PortfolioImage.model_validate(item) for item in data]

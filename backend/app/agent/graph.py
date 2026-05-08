@@ -2,11 +2,11 @@
 
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_google_genai import ChatGoogleGenerativeAI
 from loguru import logger
 
@@ -14,49 +14,112 @@ from app.core.config import settings
 from app.services.mcp_client import mcp_service
 
 
-# ---------------------------------------------------------------------------
-# Singleton LLM — instantiated once, reused across all requests
-# ---------------------------------------------------------------------------
 _llm = ChatGoogleGenerativeAI(
     model=settings.gemini_model_name,
     google_api_key=settings.gemini_api_key,
 )
 
+_cached_bound_llm = None
 
-# ---------------------------------------------------------------------------
-# State
-# ---------------------------------------------------------------------------
+
+def _get_bound_llm():
+    global _cached_bound_llm
+    if _cached_bound_llm is not None:
+        return _cached_bound_llm
+    if mcp_service.tools:
+        _cached_bound_llm = _llm.bind_tools(mcp_service.tools)
+    return _cached_bound_llm
+
+
+IMAGE_DESCRIPTION_PROMPT = (
+    "You are a semantic image retrieval expert. Given an image, produce a concise "
+    "search-friendly description (2-4 sentences, max 200 characters) that captures "
+    "only the visual elements most useful for finding similar photographs in a portfolio. "
+    "Focus on: subject type, lighting mood (e.g. golden hour, moody, dramatic), "
+    "color palette, composition style, and any distinctive visual traits. "
+    "Do NOT write a narrative story. Do NOT describe technical camera settings. "
+    "Output ONLY the description text, no preamble, no bullet points."
+)
+
 
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
+    image_description: str | None
+    image_described: bool
+    search_context: str
+    last_search_query: str
+    previous_results: str
+    system_prompt: str
 
 
-# ---------------------------------------------------------------------------
-# Agent node
-# ---------------------------------------------------------------------------
+def _has_image_in_message(msg: HumanMessage) -> str | None:
+    if not isinstance(msg, HumanMessage):
+        return None
+    if not isinstance(msg.content, list):
+        return None
+    for part in msg.content:
+        if isinstance(part, dict) and part.get("type") == "image_url":
+            url = part.get("image_url", {}).get("url", "")
+            if url.startswith("data:image/"):
+                return url.split("base64,")[1]
+    return None
 
-async def agent_node(state: AgentState):
-    """
-    The main LLM node. Uses the cached base prompt from MCP,
-    binds tools, and generates a response.
-    """
-    llm = _llm
 
-    # Bind tools dynamically (tool list is stable after startup)
-    tools = mcp_service.tools
-    if tools:
-        llm = llm.bind_tools(tools)
+async def describe_image_node(state: AgentState) -> AgentState:
+    logger.debug(f"describe_image_node entry, image_described={state.get('image_described')}")
+    messages = state["messages"]
+    last_message = messages[-1]
+
+    image_base64 = _has_image_in_message(last_message)
+
+    user_text = ""
+    if isinstance(last_message.content, list):
+        for part in last_message.content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                user_text = part.get("text", "")
+                break
+    elif isinstance(last_message.content, str):
+        user_text = last_message.content
+
+    if not image_base64:
+        logger.debug(f"describe_image_node: no image, using text query: {user_text[:50]!r}")
+        return {"image_description": user_text.strip() or None, "image_described": True}
+
+    try:
+        response = await _llm.ainvoke([
+            HumanMessage(content=[
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
+                {"type": "text", "text": IMAGE_DESCRIPTION_PROMPT}
+            ])
+        ])
+
+        description = response.content.strip() if response.content else ""
+        logger.debug(f"Image description generated ({len(description)} chars)")
+
+        combined = description
+        if user_text.strip() and user_text.strip().lower() not in ("image matching", ""):
+            combined = f"{description}\n\nAdditionally, the user requested: {user_text.strip()}"
+
+        return {"image_description": combined, "image_described": True}
+
+    except Exception as e:
+        logger.error(f"Image description generation failed: {e}")
+        return {"image_description": "", "image_described": True}
+
+
+def _route_after_describe(state: AgentState) -> str:
+    return "agent"
+
+
+async def agent_node(state: AgentState) -> AgentState:
+    llm = _get_bound_llm() or _llm.bind_tools(mcp_service.tools)
 
     messages = list(state["messages"])
 
-    # Prepend the system message if not already present
     if not messages or not isinstance(messages[0], SystemMessage):
-        system_content = mcp_service.base_prompt or "You are a helpful photography portfolio assistant."
+        system_content = state.get("system_prompt") or "You are a helpful photography portfolio assistant."
         messages = [SystemMessage(content=system_content)] + messages
 
-    # Strip heavy base64 images from history before sending to the LLM.
-    # We keep only the most recent HumanMessage's image (if any) and replace
-    # older ones with a lightweight placeholder to save tokens.
     cleaned = []
     for i, msg in enumerate(messages):
         is_last_message = (i == len(messages) - 1)
@@ -64,8 +127,6 @@ async def agent_node(state: AgentState):
             new_parts = []
             for part in msg.content:
                 if isinstance(part, dict) and part.get("type") == "image_url":
-                    # Strictly keep the image payload ONLY if it's attached to the CURRENT active turn.
-                    # This prevents old images from bleeding into future context.
                     if is_last_message:
                         new_parts.append(part)
                     else:
@@ -77,16 +138,10 @@ async def agent_node(state: AgentState):
             cleaned.append(msg)
     messages = cleaned
 
-    # --- History Pruning ---
-    # Keep only the system message + the last 6 messages (3 turns)
-    # This prevents the LLM from hallucinating old tool calls or hitting token limits
-    MAX_HISTORY = 6
+    MAX_HISTORY = 24
     if len(messages) > MAX_HISTORY + 1:
         sys_msg = messages[0]
         recent = messages[-MAX_HISTORY:]
-        # Gemini strictly requires the conversation history (after system prompt)
-        # to start with a HumanMessage. If our slice starts with AI or Tool,
-        # we must prepend older messages until we hit a HumanMessage.
         while recent and getattr(recent[0], "type", "") != "human":
             idx = len(messages) - len(recent) - 1
             if idx > 0:
@@ -95,18 +150,14 @@ async def agent_node(state: AgentState):
                 break
         messages = [sys_msg] + recent
 
-    # --- Gemini Strict Alternation Sanitization ---
-    # Gemini strictly requires: Human -> AI -> Human -> AI, and AI(tool_calls) -> Tool.
-    # If a mid-conversation failure occurs (e.g. timeout), history gets sequential HumanMessages.
     sanitized = []
     for m in messages:
         if not sanitized:
             sanitized.append(m)
             continue
-            
+
         prev = sanitized[-1]
-        
-        # Merge consecutive HumanMessages
+
         if getattr(m, "type", "") == "human" and getattr(prev, "type", "") == "human":
             merged_content = []
             for msg_obj in [prev, m]:
@@ -115,7 +166,6 @@ async def agent_node(state: AgentState):
                 elif isinstance(msg_obj.content, list):
                     merged_content.extend(msg_obj.content)
             sanitized[-1] = HumanMessage(content=merged_content)
-        # Merge consecutive AIMessages without tool calls
         elif getattr(m, "type", "") == "ai" and getattr(prev, "type", "") == "ai":
             if not getattr(m, "tool_calls", []) and not getattr(prev, "tool_calls", []):
                 sanitized[-1] = AIMessage(content=f"{prev.content}\n\n{m.content}")
@@ -123,10 +173,8 @@ async def agent_node(state: AgentState):
                 sanitized.append(m)
         else:
             sanitized.append(m)
-            
-    # Drop orphaned tool calls or tool responses
+
     final_messages = []
-    from loguru import logger
     for i, m in enumerate(sanitized):
         if getattr(m, "type", "") == "ai" and getattr(m, "tool_calls", []):
             if i + 1 < len(sanitized) and getattr(sanitized[i+1], "type", "") == "tool":
@@ -145,68 +193,61 @@ async def agent_node(state: AgentState):
     return {"messages": [response]}
 
 
-# ---------------------------------------------------------------------------
-# Tool node — injects image_base64 for MCP search, then cleans up
-# ---------------------------------------------------------------------------
-
-async def tool_node(state: AgentState):
+async def tool_node(state: AgentState) -> AgentState:
+    logger.debug(f"tool_node entry, image_description={'<set>' if state.get('image_description') else '<none>'}")
+    if not state.get("image_description") or not state["image_description"].strip():
+        logger.debug("tool_node: no image_description, returning END")
+        return END
     messages = state["messages"]
     last_message = messages[-1]
 
-    injected = False
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        latest_base64 = None
-        for msg in reversed(messages):
-            if isinstance(msg, HumanMessage) and isinstance(msg.content, list):
-                for part in msg.content:
-                    if isinstance(part, dict) and part.get("type") == "image_url":
-                        url = part.get("image_url", {}).get("url", "")
-                        if url.startswith("data:image/"):
-                            latest_base64 = url.split("base64,")[1]
-                            break
-                if latest_base64:
-                    break
-
-        if latest_base64:
-            for tc in last_message.tool_calls:
-                if tc["name"] == "search_portfolio":
-                    tc["args"]["image_base64"] = latest_base64
-                    injected = True
+        for tc in last_message.tool_calls:
+            if tc["name"] == "search_portfolio":
+                query = state.get("image_description") or ""
+                tc["args"]["query"] = query
 
     node = ToolNode(mcp_service.tools)
     result = await node.ainvoke(state)
+    if state.get("image_description"):
+        state["image_description"] = None
 
-    # Clean up the massive base64 string so it doesn't exceed
-    # the LLM token limit on the next turn.
-    if injected:
-        for tc in last_message.tool_calls:
-            if tc["name"] == "search_portfolio" and "image_base64" in tc["args"]:
-                tc["args"]["image_base64"] = None
+    new_results = ""
+    tool_msgs = [m for m in result.get("messages", []) if getattr(m, "type", "") == "tool"]
+    for tm in tool_msgs:
+        if hasattr(tm, "content") and isinstance(tm.content, str):
+            new_results = tm.content.strip()
+            break
+
+    if new_results:
+        result["previous_results"] = new_results
+        result["last_search_query"] = state.get("last_search_query", "") or state.get("image_description", "")
+        if state.get("search_context"):
+            result["search_context"] = state.get("search_context", "") + "\n\n" + new_results
+        else:
+            result["search_context"] = new_results
 
     return result
 
 
-# ---------------------------------------------------------------------------
-# Routing logic
-# ---------------------------------------------------------------------------
-
-def should_continue(state: AgentState):
+def should_continue(state: AgentState) -> str:
     last_message = state["messages"][-1]
-    if last_message.tool_calls:
+    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+        if not state.get("image_description") or not state["image_description"].strip():
+            logger.debug("should_continue: tool_calls present but no image_description, returning END")
+            return END
         return "tools"
     return END
 
 
-# ---------------------------------------------------------------------------
-# Build & compile the graph
-# ---------------------------------------------------------------------------
-
 workflow = StateGraph(AgentState)
+workflow.add_node("describe_image", describe_image_node)
 workflow.add_node("agent", agent_node)
 workflow.add_node("tools", tool_node)
-workflow.add_edge(START, "agent")
-workflow.add_conditional_edges("agent", should_continue, ["tools", END])
+
+workflow.add_edge(START, "describe_image")
+workflow.add_conditional_edges("describe_image", _route_after_describe, {"agent": "agent"})
+workflow.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
 workflow.add_edge("tools", "agent")
 
-checkpointer = MemorySaver()
-app_graph = workflow.compile(checkpointer=checkpointer)
+app_graph = workflow.compile(checkpointer=MemorySaver())

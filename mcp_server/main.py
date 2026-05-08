@@ -27,13 +27,12 @@ from pydantic import Field
 @mcp.tool()
 async def search_portfolio(
     query: str = Field("", description="Text query to search the portfolio."),
-    image_base64: str | None = Field(None, description="DO NOT USE this parameter. It is injected automatically by the backend.")
 ) -> str:
     """
     Search for images in the photography portfolio using semantic understanding.
     Returns a list of matching images and their URLs.
     """
-    return search_portfolio_images(query, image_base64)
+    return search_portfolio_images(query)
 
 
 # ---------------------------------------------------------------------------
