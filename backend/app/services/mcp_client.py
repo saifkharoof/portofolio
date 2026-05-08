@@ -2,7 +2,6 @@ import asyncio
 from contextlib import AsyncExitStack
 from mcp import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
 from langchain_mcp_adapters.tools import load_mcp_tools
 from loguru import logger
 
@@ -38,6 +37,13 @@ class MCPService:
                 logger.warning(f"Failed to connect to MCP (attempt {attempt + 1}): {e}. Retrying in 2s...")
                 await asyncio.sleep(2)
         logger.error("Failed to connect to MCP after 5 attempts.")
+
+    async def disconnect(self):
+        try:
+            await self._async_exit_stack.aclose()
+        except Exception as e:
+            logger.debug(f"MCP disconnect: {e}")
+        self.session = None
 
 from app.core.config import settings
 
