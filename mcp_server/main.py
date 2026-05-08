@@ -81,9 +81,9 @@ async def lifespan(application: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.mount("/", mcp_app)
 
+import uvicorn
 
-if __name__ == "__main__":
-    import uvicorn
+logger.info("Starting MCP Server via uvicorn (HTTP Transport)")
+uvicorn.run("main:app", host="0.0.0.0", port=settings.mcp_port, reload=True)
 
-    logger.info("Starting MCP Server via uvicorn (HTTP Transport)")
-    uvicorn.run("main:app", host="0.0.0.0", port=settings.mcp_port, reload=True)
+
