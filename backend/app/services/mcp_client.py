@@ -15,7 +15,7 @@ class MCPService:
         self.tools = []
 
     async def connect(self):
-        logger.info(f"Connecting to MCP SSE endpoint: {self.sse_url}")
+        logger.info(f"Connecting to MCP endpoint: {self.sse_url}")
 
         headers = {}
         if self.api_token:
@@ -23,9 +23,8 @@ class MCPService:
 
         for attempt in range(5):
             try:
-                # Pass the headers into the sse_client
-                read_stream, write_stream = await self._async_exit_stack.enter_async_context(
-                    sse_client(self.sse_url, headers=headers)
+                read_stream, write_stream, _ = await self._async_exit_stack.enter_async_context(
+                    streamablehttp_client(self.sse_url, headers=headers)
                 )
                 self.session = await self._async_exit_stack.enter_async_context(
                     ClientSession(read_stream, write_stream)
