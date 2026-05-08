@@ -80,10 +80,10 @@ async def lifespan(application: FastAPI):
 # Mount FastMCP as a sub-application at root (FastMCP puts its endpoint at /mcp)
 app = FastAPI(lifespan=lifespan)
 app.mount("/", mcp_app)
-#
-# import uvicorn
-#
-# logger.info("Starting MCP Server via uvicorn (HTTP Transport)")
-# uvicorn.run("main:app", host="0.0.0.0", port=settings.mcp_port, reload=False)
+
+if __name__ == "__main__":
+    import uvicorn
+    logger.info("Starting MCP Server via uvicorn (HTTP Transport)")
+    uvicorn.run("main:app", host="0.0.0.0", port=settings.mcp_port, reload=True)
 
 
