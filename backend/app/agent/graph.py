@@ -6,7 +6,7 @@ from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AI
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
+from app.agent.bounded_checkpointer import BoundedMemorySaver
 from langchain_google_genai import ChatGoogleGenerativeAI
 from loguru import logger
 
@@ -42,7 +42,7 @@ IMAGE_DESCRIPTION_PROMPT = (
 )
 
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     messages: Annotated[list[BaseMessage], add_messages]
     image_description: str | None
     image_described: bool
@@ -250,4 +250,4 @@ workflow.add_conditional_edges("describe_image", _route_after_describe, {"agent"
 workflow.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
 workflow.add_edge("tools", "agent")
 
-app_graph = workflow.compile(checkpointer=MemorySaver())
+app_graph = workflow.compile(checkpointer=BoundedMemorySaver(max_threads=50))
