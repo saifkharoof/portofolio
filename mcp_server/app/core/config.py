@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     r2_bucket_name: str = "portfolio-cv"
     
     # FastMCP
+    environment: str = "development"
     mcp_transport: str = "sse" # "stdio" or "sse"
     mcp_port: int = 8010    
     # Persona configuration

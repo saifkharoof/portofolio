@@ -50,7 +50,8 @@ def fetch_base_prompt() -> str:
 # ---------------------------------------------------------------------------
 # ASGI Application — FastAPI wrapper with lifespan
 # ---------------------------------------------------------------------------
-mcp_app = mcp.http_app(transport="sse")
+mcp_transport = "streamable-http" if getattr(settings, "environment", "development") == "production" else "sse"
+mcp_app = mcp.http_app(transport=mcp_transport)
 
 
 @asynccontextmanager

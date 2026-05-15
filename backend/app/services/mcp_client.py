@@ -16,17 +16,24 @@ class MCPService:
         self.tools = []
 
     async def connect(self):
+        from app.core.config import settings
         logger.info(f"Connecting to MCP endpoint: {self.sse_url}")
-
-        headers = {}
-        if self.api_token:
-            headers["Authorization"] = f"Bearer {self.api_token}"
 
         for attempt in range(5):
             try:
-                read_stream, write_stream, _ = await self._async_exit_stack.enter_async_context(
-                    streamablehttp_client(self.sse_url, headers=headers)
-                )
+                if settings.environment == "production":
+                    logger.info("Using streamablehttp_client for production (Perfect Horizon)")
+                    headers = {"Accept": "application/json, text/event-stream"}
+                    if self.api_token:
+                        headers["Authorization"] = f"Bearer {self.api_token}"
+                    client_context = streamablehttp_client(self.sse_url, headers=headers)
+                    streams = await self._async_exit_stack.enter_async_context(client_context)
+                    read_stream, write_stream = streams[0], streams[1]
+                else:
+                    logger.info("Using sse_client for local development")
+                    client_context = sse_client(self.sse_url)
+                    read_stream, write_stream = await self._async_exit_stack.enter_async_context(client_context)
+                
                 self.session = await self._async_exit_stack.enter_async_context(
                     ClientSession(read_stream, write_stream)
                 )
@@ -34,7 +41,7 @@ class MCPService:
                 self.tools = await load_mcp_tools(self.session)
                 logger.info(f"MCP Session initialized. Loaded {len(self.tools)} tools.")
                 return
-            except Exception as e:
+            except BaseException as e:
                 logger.warning(f"Failed to connect to MCP (attempt {attempt + 1}): {e}. Retrying in 2s...")
                 await asyncio.sleep(2)
         logger.error("Failed to connect to MCP after 5 attempts.")

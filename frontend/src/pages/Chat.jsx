@@ -13,13 +13,7 @@ const Chat = () => {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [threadId] = useState(() => {
-    const stored = localStorage.getItem('chat_thread_id');
-    if (stored) return stored;
-    const newId = 'thread_' + Math.random().toString(36).substring(2, 15);
-    localStorage.setItem('chat_thread_id', newId);
-    return newId;
-  });
+  const [threadId] = useState(() => 'thread_' + crypto.randomUUID());
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const [lightboxData, setLightboxData] = useState(null);
@@ -36,7 +30,7 @@ const Chat = () => {
   useEffect(() => {
     // Save state to sessionStorage for the Navbar to read
     sessionStorage.setItem('isChatActive', messages.length > 1 ? 'true' : 'false');
-    
+
     // Prevent accidental reload or tab close
     const handleBeforeUnload = (e) => {
       if (messages.length > 1) {
@@ -44,7 +38,7 @@ const Chat = () => {
         e.returnValue = ''; // Required for Chrome
       }
     };
-    
+
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [messages.length]);
@@ -89,7 +83,7 @@ const Chat = () => {
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       if (file.type.startsWith('image/')) {
@@ -127,13 +121,10 @@ const Chat = () => {
   const renderMessageText = (text, images) => {
     let html = text;
 
-    if (images && images.length > 0) {
-      html = html.replace(/!\[[\s\S]*?\]\([\s\S]*?\)/g, '');
-      html = html.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-    } else {
-      html = html.replace(/!\[([\s\S]*?)\]\(([\s\S]*?)\)/g, '<br/><img src="$2" alt="$1" class="chat-inline-image" /><br/>');
-      html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-    }
+    // ALWAYS strip markdown image syntax — images are rendered exclusively as ImageCard components
+    html = html.replace(/!\[[\s\S]*?\]\([\s\S]*?\)/g, '');
+    // Convert remaining markdown links to HTML anchors
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 
     // Hide partial markdown image tags that are actively streaming in (fixes raw text flashing)
     html = html.replace(/!\[[^\]]*\]\([^\s)]*$/, '');
@@ -216,7 +207,7 @@ const Chat = () => {
                   });
                   return updated;
                 });
-                
+
                 setMessages(prev => {
                   const nm = [...prev];
                   nm[nm.length - 1] = { ...nm[nm.length - 1], toolImages: data.images };
@@ -280,7 +271,7 @@ const Chat = () => {
   };
 
   return (
-    <div 
+    <div
       className="chat-page animate-fade-in-up"
       onDragOver={handleDragOver}
       onDragEnter={handleDragOver}
@@ -299,7 +290,7 @@ const Chat = () => {
           </div>
         </div>
       )}
-      
+
       <div className="chat-header">
         <h2 className="section-title">AI Portfolio Assistant</h2>
         <p className="section-subtitle">Multimodal Search & Interaction</p>
@@ -319,18 +310,47 @@ const Chat = () => {
 
                 {msg.text && (() => {
                   let displayImages = [];
-                  // Look up against ALL known images in the session
-                  if (knownImages.length > 0) {
-                    knownImages.forEach(img => {
-                      if (msg.text.includes(img.image_url)) {
-                        displayImages.push(img);
-                      }
-                    });
+
+                  // Extract ALL image URLs mentioned in the text (from markdown ![...](...) syntax)
+                  const mdImageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+                  let match;
+                  const extractedUrls = [];
+                  while ((match = mdImageRegex.exec(msg.text)) !== null) {
+                    extractedUrls.push({ alt: match[1], url: match[2] });
                   }
+
+                  // Match extracted URLs against knownImages for rich metadata
+                  // If not found in knownImages, create a minimal ImageCard-compatible object
+                  // This ensures images ALWAYS render as cards, never as plain <img>
+                  const seenUrls = new Set();
+                  
+                  // First: match URLs from knownImages that appear anywhere in the text
+                  knownImages.forEach(img => {
+                    if (msg.text.includes(img.image_url) && !seenUrls.has(img.image_url)) {
+                      displayImages.push(img);
+                      seenUrls.add(img.image_url);
+                    }
+                  });
+
+                  // Second: any markdown image URLs not yet matched get a minimal card object
+                  extractedUrls.forEach(({ alt, url }) => {
+                    if (!seenUrls.has(url)) {
+                      displayImages.push({
+                        image_url: url,
+                        title: alt || 'Portfolio Image',
+                        description: '',
+                        tags: [],
+                      });
+                      seenUrls.add(url);
+                    }
+                  });
+
+                  // Always strip markdown images from text — they render as cards below
+                  const alwaysStripImages = true;
 
                   return (
                     <>
-                      {renderMessageText(msg.text, displayImages)}
+                      {renderMessageText(msg.text, alwaysStripImages ? displayImages.length > 0 ? displayImages : [] : [])}
 
                       {msg.isStreaming && (
                         <span className="typing-indicator"><span>.</span><span>.</span><span>.</span></span>
@@ -363,8 +383,8 @@ const Chat = () => {
         {messages.length === 1 && (
           <div className="chat-suggestions">
             {suggestions.map((suggestion, i) => (
-              <button 
-                key={i} 
+              <button
+                key={i}
                 type="button"
                 className="suggestion-bubble"
                 onClick={() => setInput(suggestion)}
